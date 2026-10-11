@@ -524,5 +524,54 @@ check("  falls back to the rectangle and picks the bar", G.DoesItDieDB.customHea
 check("  no pick error logged", any("ERROR in frame pick" in l for l in G.DoesItDieDB.log.values()), False)
 lua.execute("issecretvalue = nil")
 
+# EllesmereUI: its target frame (EllesmereUIUnitFrames_Target, bar in .Health, portrait in .Portrait) hides
+# Blizzard's, and is used without any custom path. Its nameplates park Blizzard's health bar on a hidden frame and
+# draw their own plate, parented to the nameplate with .nameplate pointing back and the bar in .health.
+lua.execute("""
+    local eui = CreateFrame("Button", "EllesmereUIUnitFrames_Target", UIParent)
+    eui.Health = CreateFrame("StatusBar", nil, eui)
+    eui.Portrait = eui:CreateTexture()
+""")
+step("clear the custom health bar", type_frame_path("Target health bar", ""))
+step("display loop with EllesmereUI's target frame", lambda: H.update(0.2))
+check("  marker laid over EllesmereUI's health bar",
+      same(G.DoesItDieRemaining.allPoints, G.EllesmereUIUnitFrames_Target.Health), True)
+check("  status shows it, auto-detected", ns.attachStatus()[0],
+      "|cff66ff66EllesmereUIUnitFrames_Target.Health|r (EllesmereUI, auto)")
+check("  kill icon on EllesmereUI's portrait", "EllesmereUIUnitFrames_Target.Portrait" in ns.attachStatus()[1], True)
+step("a typed custom path still wins", type_frame_path("Target health bar", "MyTargetFrame.Health"))
+H.update(0.2)
+check("  marker back on the custom bar", same(G.DoesItDieRemaining.allPoints, custom_bar), True)
+
+def plates_on():
+    G.DoesItDieDB.nameplateMode = "markerIcon"
+    dot_the_mob()
+
+
+step("nameplates back on, Corruption recast", plates_on)
+check("  marker on Blizzard's bar shown", markers[0].shown if markers else None, True)
+
+
+def ellesmere_takes_the_plate():
+    lua.execute("""
+        local euiPlate = FakeMock("Frame", FakePlate)
+        euiPlate.nameplate = FakePlate
+        euiPlate.health = FakeMock("StatusBar", euiPlate)
+        function euiPlate.health:GetObjectType() return "StatusBar" end
+        function FakePlate:GetChildren() return FakePlate.UnitFrame, euiPlate end
+        EuiPlate = euiPlate
+    """)
+    H.update(0.2)
+
+
+step("EllesmereUI draws nameplate1", ellesmere_takes_the_plate)
+on_eui = [c for c in plate_children("StatusBar") if same(c.allPoints, G.EuiPlate.health)]
+check("  a marker on EllesmereUI's health bar", len(on_eui), 1)
+check("  shown", on_eui[0].shown if on_eui else None, True)
+check("  the old marker on Blizzard's parked bar hidden", markers[0].shown if markers else None, False)
+step("/did plates with EllesmereUI", lambda: G.SlashCmdList.DOESITDIE("plates"))
+check("  probe names EllesmereUI's bar",
+      any("healthBar=EllesmereUI plate.health" in l for l in G.DoesItDieDB.log.values()), True)
+
 print(f"\n{'all passed' if not failures else str(failures) + ' FAILED'}")
 sys.exit(1 if failures else 0)
